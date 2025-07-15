@@ -30,13 +30,24 @@ def convert_docx():
                 '--convert-to', 'pdf',
                 '--outdir', temp_dir,
                 docx_path
-            ], check=True)
+            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
 
-            pdf_filename = os.path.splitext(file.filename)[0] + '.pdf'
-            pdf_path = os.path.join(temp_dir, pdf_filename)
+            # Find any pdf in temp_dir after conversion
+            pdf_files = [f for f in os.listdir(temp_dir) if f.lower().endswith('.pdf')]
+            if not pdf_files:
+                return jsonify({"error": "Conversion failed: No PDF created"}), 500
+
+            pdf_path = os.path.join(temp_dir, pdf_files[0])  # take first PDF found
             return send_file(pdf_path, mimetype='application/pdf', download_name='converted.pdf')
         except subprocess.CalledProcessError as e:
-            return jsonify({"error": "Conversion failed", "details": str(e)}), 500
+            return jsonify({
+                "error": "Conversion failed with CalledProcessError",
+                "stdout": e.stdout.decode() if e.stdout else "",
+                "stderr": e.stderr.decode() if e.stderr else "",
+                "details": str(e)
+            }), 500
+        except Exception as e:
+            return jsonify({"error": "Unexpected error: " + str(e)}), 500
 
 @app.route("/convert-multiple", methods=["POST"])
 def convert_multiple_docx():
