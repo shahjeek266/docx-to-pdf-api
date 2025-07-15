@@ -1,53 +1,45 @@
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, send_file, jsonify
 import os
 import tempfile
-import shutil
-import pythoncom
-import comtypes.client
+import subprocess
 
 app = Flask(__name__)
 
 @app.route("/convert", methods=["POST"])
 def convert():
-    pythoncom.CoInitialize()  # Fix for COM threading
-
     if 'file' not in request.files:
-        pythoncom.CoUninitialize()
         return jsonify({"error": "No file uploaded"}), 400
 
     file = request.files['file']
     filename = file.filename
 
     if not filename.lower().endswith('.docx'):
-        pythoncom.CoUninitialize()
         return jsonify({"error": "Only .docx files are supported"}), 400
 
     with tempfile.TemporaryDirectory() as temp_dir:
         docx_path = os.path.join(temp_dir, filename)
-        pdf_path = os.path.join(temp_dir, 'converted.pdf')
-        safe_pdf_path = os.path.join(tempfile.gettempdir(), f'converted_{os.getpid()}.pdf')
-
         file.save(docx_path)
 
         try:
-            word = comtypes.client.CreateObject('Word.Application')
-            word.Visible = False
-            word.DisplayAlerts = 0
-            doc = word.Documents.Open(docx_path)
-            doc.SaveAs(pdf_path, FileFormat=17)
-            doc.Close()
-            word.Quit()
+            # Convert .docx to .pdf using LibreOffice
+            subprocess.run([
+                "libreoffice",
+                "--headless",
+                "--convert-to", "pdf",
+                "--outdir", temp_dir,
+                docx_path
+            ], check=True)
 
-            # Copy the file to avoid permission error on deletion
-            shutil.copy(pdf_path, safe_pdf_path)
+            pdf_filename = filename.rsplit(".", 1)[0] + ".pdf"
+            pdf_path = os.path.join(temp_dir, pdf_filename)
 
-            return send_file(safe_pdf_path, mimetype='application/pdf', download_name='converted.pdf')
+            if not os.path.exists(pdf_path):
+                return jsonify({"error": "PDF conversion failed"}), 500
 
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
-
-        finally:
-            pythoncom.CoUninitialize()
+            return send_file(pdf_path, mimetype="application/pdf", as_attachment=True, download_name="converted.pdf")
+        
+        except subprocess.CalledProcessError as e:
+            return jsonify({"error": f"Conversion error: {str(e)}"}), 500
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
