@@ -1,0 +1,6 @@
+Flask
+weasyprint
+python-docx
+comtypes
+Pillow
+PyPDF2
