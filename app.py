@@ -121,56 +121,76 @@ def combine_mixed():
 
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_pdfs = []
+        errors = []
 
         for f in files:
-            filename = f.filename.lower()
-            base = os.path.splitext(filename)[0]
-            pdf_path = os.path.join(temp_dir, base + '_temp.pdf')
-            ext = os.path.splitext(filename)[1]
+            original_filename = f.filename
+            if not original_filename:
+                errors.append("One file has no filename")
+                continue
 
-            file_path = os.path.join(temp_dir, filename)
-            f.save(file_path)
+            filename = secure_filename(original_filename)
+            base, ext = os.path.splitext(filename)
+            ext = ext.lower()
+
+            input_path = os.path.join(temp_dir, filename)
+            f.save(input_path)
 
             try:
                 if ext == '.docx':
-                    subprocess.run(['libreoffice', '--headless', '--convert-to', 'pdf', '--outdir', temp_dir, file_path], check=True)
-                    temp_pdfs.append(os.path.join(temp_dir, base + '.pdf'))
+                    # LibreOffice converts with .pdf extension, not _temp.pdf
+                    subprocess.run([
+                        'libreoffice', '--headless', '--convert-to', 'pdf',
+                        '--outdir', temp_dir, input_path
+                    ], check=True)
+
+                    converted_pdf = os.path.join(temp_dir, base + '.pdf')
+                    if os.path.exists(converted_pdf):
+                        temp_pdfs.append(converted_pdf)
+                    else:
+                        errors.append(f"Conversion failed for {filename}")
 
                 elif ext == '.txt':
-                    with open(file_path, 'r', encoding='utf-8') as txtf:
-                        content = txtf.read()
-                    from weasyprint import HTML
+                    content = open(input_path, 'r', encoding='utf-8').read()
+                    pdf_path = os.path.join(temp_dir, base + '.pdf')
                     HTML(string=f"<pre>{content}</pre>").write_pdf(pdf_path)
                     temp_pdfs.append(pdf_path)
 
                 elif ext in ['.jpg', '.jpeg', '.png']:
-                    from PIL import Image
-                    img = Image.open(file_path).convert("RGB")
+                    pdf_path = os.path.join(temp_dir, base + '.pdf')
+                    img = Image.open(input_path).convert('RGB')
                     img.save(pdf_path)
                     temp_pdfs.append(pdf_path)
 
                 elif ext == '.html':
-                    from weasyprint import HTML
-                    HTML(file_path).write_pdf(pdf_path)
+                    pdf_path = os.path.join(temp_dir, base + '.pdf')
+                    HTML(input_path).write_pdf(pdf_path)
                     temp_pdfs.append(pdf_path)
 
                 elif ext == '.pdf':
-                    temp_pdfs.append(file_path)
+                    temp_pdfs.append(input_path)
+
+                else:
+                    errors.append(f"Unsupported file type: {filename}")
 
             except Exception as e:
-                return jsonify({"error": f"Error converting {filename}: {str(e)}"}), 500
+                errors.append(f"Error converting {filename}: {str(e)}")
 
         if not temp_pdfs:
-            return jsonify({"error": "No convertible files"}), 400
+            return jsonify({"error": "No convertible files", "details": errors}), 400
 
-        final_pdf_path = os.path.join(temp_dir, 'combined_output.pdf')
-        merger = PdfMerger()
-        for pdf in temp_pdfs:
-            merger.append(pdf)
-        merger.write(final_pdf_path)
-        merger.close()
+        try:
+            combined_pdf_path = os.path.join(temp_dir, 'combined_output.pdf')
+            merger = PdfMerger()
+            for pdf_file in temp_pdfs:
+                merger.append(pdf_file)
+            merger.write(combined_pdf_path)
+            merger.close()
 
-        return send_file(final_pdf_path, mimetype='application/pdf', download_name='combined_output.pdf')
+            return send_file(combined_pdf_path, mimetype='application/pdf', download_name='combined_output.pdf')
+
+        except Exception as e:
+            return jsonify({"error": "Failed to merge PDFs", "details": str(e), "partial_errors": errors}), 500
 
 
 if __name__ == "__main__":
