@@ -1,8 +1,7 @@
-from flask import Flask, request, send_file, jsonify
+from flask import Flask, request, jsonify, send_file
 import os
 import tempfile
-import mammoth
-import pdfkit
+import subprocess
 
 app = Flask(__name__)
 
@@ -12,25 +11,29 @@ def convert():
         return jsonify({"error": "No file uploaded"}), 400
 
     file = request.files['file']
-    if not file.filename.endswith(".docx"):
+    if not file.filename.lower().endswith('.docx'):
         return jsonify({"error": "Only .docx files are supported"}), 400
 
     with tempfile.TemporaryDirectory() as temp_dir:
         docx_path = os.path.join(temp_dir, file.filename)
         file.save(docx_path)
 
-        with open(docx_path, "rb") as docx_file:
-            result = mammoth.convert_to_html(docx_file)
-            html_content = result.value
+        try:
+            # Run LibreOffice in headless mode to convert to PDF
+            subprocess.run([
+                'libreoffice',
+                '--headless',
+                '--convert-to', 'pdf',
+                '--outdir', temp_dir,
+                docx_path
+            ], check=True)
 
-        html_path = os.path.join(temp_dir, "converted.html")
-        with open(html_path, "w", encoding="utf-8") as html_file:
-            html_file.write(html_content)
+            pdf_filename = os.path.splitext(file.filename)[0] + '.pdf'
+            pdf_path = os.path.join(temp_dir, pdf_filename)
 
-        pdf_path = os.path.join(temp_dir, "converted.pdf")
-        pdfkit.from_file(html_path, pdf_path)
-
-        return send_file(pdf_path, download_name="converted.pdf", mimetype="application/pdf")
+            return send_file(pdf_path, mimetype='application/pdf', download_name='converted.pdf')
+        except subprocess.CalledProcessError as e:
+            return jsonify({"error": "Conversion failed", "details": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
