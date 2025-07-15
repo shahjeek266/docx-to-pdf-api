@@ -1,11 +1,13 @@
 from flask import Flask, request, jsonify, send_file
+from flask_cors import CORS
 import os
 import tempfile
 import subprocess
-from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app, origins=["https://shahmirkhan.net"])  # <-- allow your WordPress domain here
+
+# ✅ Allow all origins or restrict to your domain
+CORS(app, resources={r"/convert": {"origins": "*"}})  # or use "https://shahmirkhan.net" instead of "*"
 
 @app.route("/convert", methods=["POST"])
 def convert():
@@ -21,7 +23,6 @@ def convert():
         file.save(docx_path)
 
         try:
-            # Run LibreOffice in headless mode to convert to PDF
             subprocess.run([
                 'libreoffice',
                 '--headless',
@@ -34,6 +35,7 @@ def convert():
             pdf_path = os.path.join(temp_dir, pdf_filename)
 
             return send_file(pdf_path, mimetype='application/pdf', download_name='converted.pdf')
+
         except subprocess.CalledProcessError as e:
             return jsonify({"error": "Conversion failed", "details": str(e)}), 500
 
