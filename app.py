@@ -48,29 +48,30 @@ def convert_multiple_to_zip():
 
     with tempfile.TemporaryDirectory() as temp_dir:
         zip_path = os.path.join(temp_dir, "converted_files.zip")
-        zipf = zipfile.ZipFile(zip_path, 'w')
 
-        for file in files:
-            filename = secure_filename(file.filename)
-            input_path = os.path.join(temp_dir, filename)
-            file.save(input_path)
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for file in files:
+                filename = secure_filename(file.filename)
+                input_path = os.path.join(temp_dir, filename)
+                file.save(input_path)
 
-            ext = os.path.splitext(filename)[1].lower()
-            output_pdf = os.path.splitext(filename)[0] + ".pdf"
-            output_pdf_path = os.path.join(temp_dir, output_pdf)
+                ext = os.path.splitext(filename)[1].lower()
+                output_pdf = os.path.splitext(filename)[0] + ".pdf"
+                output_pdf_path = os.path.join(temp_dir, output_pdf)
 
-            try:
-                subprocess.run([
-                    'libreoffice', '--headless', '--convert-to', 'pdf',
-                    '--outdir', temp_dir, input_path
-                ], check=True)
-                zipf.write(output_pdf_path, output_pdf)
-            except subprocess.CalledProcessError as e:
-                print(f"Error converting {filename}: {e}")
-                continue
+                try:
+                    subprocess.run([
+                        'libreoffice', '--headless', '--convert-to', 'pdf',
+                        '--outdir', temp_dir, input_path
+                    ], check=True)
+                    if os.path.exists(output_pdf_path):
+                        zipf.write(output_pdf_path, arcname=output_pdf)
+                except subprocess.CalledProcessError as e:
+                    print(f"Error converting {filename}: {e}")
+                    continue
 
-        zipf.close()
-        return send_file(zip_path, mimetype='application/zip', download_name='converted_files.zip')
+        return send_file(zip_path, mimetype='application/zip', as_attachment=True, download_name='converted_files.zip')
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
