@@ -1,7 +1,8 @@
 from flask import Flask, request, send_file, jsonify
 import os
 import tempfile
-import subprocess
+import mammoth
+import pdfkit
 
 app = Flask(__name__)
 
@@ -11,35 +12,25 @@ def convert():
         return jsonify({"error": "No file uploaded"}), 400
 
     file = request.files['file']
-    filename = file.filename
-
-    if not filename.lower().endswith('.docx'):
+    if not file.filename.endswith(".docx"):
         return jsonify({"error": "Only .docx files are supported"}), 400
 
     with tempfile.TemporaryDirectory() as temp_dir:
-        docx_path = os.path.join(temp_dir, filename)
+        docx_path = os.path.join(temp_dir, file.filename)
         file.save(docx_path)
 
-        try:
-            # Convert .docx to .pdf using LibreOffice
-            subprocess.run([
-                "libreoffice",
-                "--headless",
-                "--convert-to", "pdf",
-                "--outdir", temp_dir,
-                docx_path
-            ], check=True)
+        with open(docx_path, "rb") as docx_file:
+            result = mammoth.convert_to_html(docx_file)
+            html_content = result.value
 
-            pdf_filename = filename.rsplit(".", 1)[0] + ".pdf"
-            pdf_path = os.path.join(temp_dir, pdf_filename)
+        html_path = os.path.join(temp_dir, "converted.html")
+        with open(html_path, "w", encoding="utf-8") as html_file:
+            html_file.write(html_content)
 
-            if not os.path.exists(pdf_path):
-                return jsonify({"error": "PDF conversion failed"}), 500
+        pdf_path = os.path.join(temp_dir, "converted.pdf")
+        pdfkit.from_file(html_path, pdf_path)
 
-            return send_file(pdf_path, mimetype="application/pdf", as_attachment=True, download_name="converted.pdf")
-        
-        except subprocess.CalledProcessError as e:
-            return jsonify({"error": f"Conversion error: {str(e)}"}), 500
+        return send_file(pdf_path, download_name="converted.pdf", mimetype="application/pdf")
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    app.run(host="0.0.0.0", port=5000)
