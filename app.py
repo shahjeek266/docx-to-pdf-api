@@ -2,8 +2,10 @@ from flask import Flask, request, jsonify, send_file
 import os
 import tempfile
 import subprocess
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app, origins=["https://shahmirkhan.net"])  # <-- allow your WordPress domain here
 
 @app.route("/convert", methods=["POST"])
 def convert():
