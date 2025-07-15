@@ -110,5 +110,68 @@ def merge_pdfs():
         except Exception as e:
             return jsonify({"error": "Merging failed", "details": str(e)}), 500
 
+@app.route('/combine-mixed', methods=['POST'])
+def combine_mixed():
+    if 'files' not in request.files:
+        return jsonify({"error": "No files uploaded"}), 400
+
+    files = request.files.getlist('files')
+    if not files:
+        return jsonify({"error": "No files found"}), 400
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_pdfs = []
+
+        for f in files:
+            filename = f.filename.lower()
+            base = os.path.splitext(filename)[0]
+            pdf_path = os.path.join(temp_dir, base + '_temp.pdf')
+            ext = os.path.splitext(filename)[1]
+
+            file_path = os.path.join(temp_dir, filename)
+            f.save(file_path)
+
+            try:
+                if ext == '.docx':
+                    subprocess.run(['libreoffice', '--headless', '--convert-to', 'pdf', '--outdir', temp_dir, file_path], check=True)
+                    temp_pdfs.append(os.path.join(temp_dir, base + '.pdf'))
+
+                elif ext == '.txt':
+                    with open(file_path, 'r', encoding='utf-8') as txtf:
+                        content = txtf.read()
+                    from weasyprint import HTML
+                    HTML(string=f"<pre>{content}</pre>").write_pdf(pdf_path)
+                    temp_pdfs.append(pdf_path)
+
+                elif ext in ['.jpg', '.jpeg', '.png']:
+                    from PIL import Image
+                    img = Image.open(file_path).convert("RGB")
+                    img.save(pdf_path)
+                    temp_pdfs.append(pdf_path)
+
+                elif ext == '.html':
+                    from weasyprint import HTML
+                    HTML(file_path).write_pdf(pdf_path)
+                    temp_pdfs.append(pdf_path)
+
+                elif ext == '.pdf':
+                    temp_pdfs.append(file_path)
+
+            except Exception as e:
+                return jsonify({"error": f"Error converting {filename}: {str(e)}"}), 500
+
+        if not temp_pdfs:
+            return jsonify({"error": "No convertible files"}), 400
+
+        final_pdf_path = os.path.join(temp_dir, 'combined_output.pdf')
+        merger = PdfMerger()
+        for pdf in temp_pdfs:
+            merger.append(pdf)
+        merger.write(final_pdf_path)
+        merger.close()
+
+        return send_file(final_pdf_path, mimetype='application/pdf', download_name='combined_output.pdf')
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
